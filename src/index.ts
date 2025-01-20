@@ -14,7 +14,7 @@ export function stripTmTags(str: string): string {
   return str;
 }
 
-export function parseTmTags(str: string) {
+export function parseTmTags(str: string): string {
   const tokens = str.split(
     /(\$[<>]|\$[0-9a-f]{1,3}|\$[oiwnmtsgz]|\$l\[.*?\])/gi
   );
@@ -23,19 +23,18 @@ export function parseTmTags(str: string) {
   let encapsulationLevel = 0;
   let result = "";
 
-  for (let token of tokens) {
-    if (!token) {
-      continue;
-    }
+  const addTag = (openTag: string, closeTag: string) => {
+    result += openTag;
+    stack.push({ tag: closeTag, encapsulationLevel });
+  };
 
-    const tokenLower = token.toLowerCase();
-    if (token === "$<") {
+  const styleHandlers: Record<string, (token: string) => void> = {
+    "$<": () => {
       encapsulationLevel++;
-      result += "<span>";
-      stack.push({ tag: "</span>", encapsulationLevel });
-    } else if (token === "$>") {
+      addTag("<span>", "</span>");
+    },
+    "$>": () => {
       if (encapsulationLevel > 0) {
-        // Close all tags from the current encapsulation level
         while (
           stack.length &&
           stack[stack.length - 1].encapsulationLevel === encapsulationLevel
@@ -44,44 +43,41 @@ export function parseTmTags(str: string) {
         }
         encapsulationLevel--;
       }
-    } else if (tokenLower.startsWith("$l[")) {
-      const url = token.slice(3, -1);
-      result += `<a href='${url}' target='_blank'>`;
-      stack.push({ tag: "</a>", encapsulationLevel });
-    } else if (token.match(/^\$[0-9a-fA-F]{1,3}$/i)) {
+    },
+    $o: () => addTag("<span style='font-weight: bold'>", "</span>"),
+    $i: () => addTag("<span style='font-style: italic'>", "</span>"),
+    $w: () => addTag("<span style='font-stretch: expanded'>", "</span>"),
+    $n: () => addTag("<span style='font-stretch: condensed'>", "</span>"),
+    $m: () => addTag("<span style='font-stretch: normal'>", "</span>"),
+    $t: () => addTag("<span style='text-transform: uppercase'>", "</span>"),
+    $s: () => addTag("<span style='text-shadow: 1px 1px 1px #000'>", "</span>"),
+    $g: () => addTag("<span class='text-foreground'>", "</span>"),
+    $z: () =>
+      addTag(
+        "<span class='text-foreground' style='font-weight: normal; font-style: normal; font-stretch: normal; text-transform: none; text-shadow: none'>",
+        "</span>"
+      ),
+  };
+
+  for (let token of tokens) {
+    if (!token) continue;
+
+    const tokenLower = token.toLowerCase();
+    const handler = styleHandlers[tokenLower];
+    if (handler) {
+      handler(token);
+    } else if (tokenLower.match(/^\$[0-9a-f]{1,3}$/i)) {
+      // Handle color codes
       const color = token.slice(1);
-      result += `<span style='color: #${color}${"0".repeat(
-        3 - color.length
-      )}'>`;
-      stack.push({ tag: "</span>", encapsulationLevel });
-    } else if (tokenLower === "$o") {
-      result += "<span style='font-weight: bold'>";
-      stack.push({ tag: "</span>", encapsulationLevel });
-    } else if (tokenLower === "$i") {
-      result += "<span style='font-style: italic'>";
-      stack.push({ tag: "</span>", encapsulationLevel });
-    } else if (tokenLower === "$w") {
-      result += "<span style='font-stretch: expanded'>";
-      stack.push({ tag: "</span>", encapsulationLevel });
-    } else if (tokenLower === "$n") {
-      result += "<span style='font-stretch: condensed'>";
-      stack.push({ tag: "</span>", encapsulationLevel });
-    } else if (tokenLower === "$m") {
-      result += "<span style='font-stretch: normal'>";
-      stack.push({ tag: "</span>", encapsulationLevel });
-    } else if (tokenLower === "$t") {
-      result += "<span style='text-transform: uppercase'>";
-      stack.push({ tag: "</span>", encapsulationLevel });
-    } else if (tokenLower === "$s") {
-      result += "<span style='text-shadow: 1px 1px 1px #000'>";
-      stack.push({ tag: "</span>", encapsulationLevel });
-    } else if (tokenLower === "$g") {
-      result += "<span class='text-foreground'>";
-      stack.push({ tag: "</span>", encapsulationLevel });
-    } else if (tokenLower === "$z") {
-      result +=
-        "<span class='text-foreground' style='font-weight: normal; font-style: normal; font-stretch: normal; text-transform: none; text-shadow: none'>";
-      stack.push({ tag: "</span>", encapsulationLevel });
+      addTag(
+        `<span style='color: #${color}${"0".repeat(3 - color.length)}'>`,
+        "</span>"
+      );
+    } else if (tokenLower.startsWith("$l[")) {
+      // Handle links
+      const url = token.slice(3, -1);
+      addTag(`<a href='${url}' target='_blank'>`, "</a>");
+      continue;
     } else {
       result += token;
     }
